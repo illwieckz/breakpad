@@ -52,7 +52,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#ifdef HAVE_LIBZ
 #include <zlib.h>
+#endif
 #ifdef HAVE_LIBZSTD
 #include <zstd.h>
 #endif
@@ -314,6 +316,7 @@ uint32_t GetCompressionHeader(
   return sizeof (*header);
 }
 
+#ifdef HAVE_LIBZ
 std::pair<uint8_t *, uint64_t> UncompressZlibSectionContents(
     const uint8_t* compressed_buffer, uint64_t compressed_size, uint64_t uncompressed_size) {
   google_breakpad::scoped_array<uint8_t> uncompressed_buffer(
@@ -328,6 +331,7 @@ std::pair<uint8_t *, uint64_t> UncompressZlibSectionContents(
       ? std::make_pair(nullptr, 0)
       : std::make_pair(uncompressed_buffer.release(), uncompressed_size);
 }
+#endif
 
 #ifdef HAVE_LIBZSTD
 std::pair<uint8_t *, uint64_t> UncompressZstdSectionContents(
@@ -347,9 +351,12 @@ std::pair<uint8_t *, uint64_t> UncompressZstdSectionContents(
 std::pair<uint8_t *, uint64_t> UncompressSectionContents(
     uint64_t compression_type, const uint8_t* compressed_buffer,
     uint64_t compressed_size, uint64_t uncompressed_size) {
+
+#ifdef HAVE_LIBZ
   if (compression_type == ELFCOMPRESS_ZLIB) {
     return UncompressZlibSectionContents(compressed_buffer, compressed_size, uncompressed_size);
   }
+#endif
 
 #ifdef HAVE_LIBZSTD
   if (compression_type == ELFCOMPRESS_ZSTD) {
@@ -363,7 +370,7 @@ std::pair<uint8_t *, uint64_t> UncompressSectionContents(
 void StartProcessSplitDwarf(google_breakpad::CompilationUnit* reader,
                             Module* module,
                             google_breakpad::Endianness endianness,
-               bool handle_inter_cu_refs,
+                            bool handle_inter_cu_refs,
                             bool handle_inline) {
   std::string split_file;
   google_breakpad::SectionMap split_sections;
@@ -438,7 +445,7 @@ bool LoadDwarf(const std::string& dwarf_filename,
     const Shdr* section = &sections[i];
     std::string name =
         GetOffset<ElfClass, char>(elf_header, section_names->sh_offset) +
-                  section->sh_name;
+        section->sh_name;
     const uint8_t* contents = GetOffset<ElfClass, uint8_t>(elf_header,
                                                            section->sh_offset);
     uint64_t size = section->sh_size;
@@ -516,7 +523,7 @@ bool LoadDwarf(const std::string& dwarf_filename,
 // numbers used in DWARF call frame information. Return true on
 // success, or false if HEADER's machine architecture is not
 // supported.
-template<typename ElfClass>
+template <typename ElfClass>
 bool DwarfCFIRegisterNames(const typename ElfClass::Ehdr* elf_header,
                            std::vector<std::string>* register_names) {
   switch (elf_header->e_machine) {
@@ -543,7 +550,7 @@ bool DwarfCFIRegisterNames(const typename ElfClass::Ehdr* elf_header,
   }
 }
 
-template<typename ElfClass>
+template <typename ElfClass>
 bool LoadDwarfCFI(const std::string& dwarf_filename,
                   const typename ElfClass::Ehdr* elf_header,
                   const char* section_name,
@@ -620,8 +627,8 @@ bool LoadDwarfCFI(const std::string& dwarf_filename,
     return false;
   }
   google_breakpad::CallFrameInfo parser(uncompressed.first, uncompressed.second,
-                                     &byte_reader, &handler, &dwarf_reporter,
-                                     eh_frame);
+                                        &byte_reader, &handler, &dwarf_reporter,
+                                        eh_frame);
   parser.Start();
   return true;
 }
@@ -821,7 +828,7 @@ class LoadSymbolsInfo {
  private:
   const std::vector<std::string>&
       debug_dirs_;  // Directories in which to
-                                          // search for the debug ELF file.
+                    // search for the debug ELF file.
 
   std::string debuglink_file_;  // Full path to the debug ELF file.
 
@@ -831,13 +838,13 @@ class LoadSymbolsInfo {
                        // first call to LoadSymbols().
 
   std::string loaded_file_;  // Name of the file loaded from the first call to
-                        // LoadSymbols().
+                             // LoadSymbols().
 
   std::set<std::string> loaded_sections_;  // Tracks the Loaded ELF sections
-                                      // between calls to LoadSymbols().
+                                           // between calls to LoadSymbols().
 };
 
-template<typename ElfClass>
+template <typename ElfClass>
 bool LoadSymbols(const std::string& obj_file, const bool big_endian,
                  const typename ElfClass::Ehdr* elf_header,
                  const bool read_gnu_debug_link,
@@ -969,7 +976,7 @@ bool LoadSymbols(const std::string& obj_file, const bool big_endian,
         FindElfSectionByName<ElfClass>(".debug_info", SHT_MIPS_DWARF,
                                        sections, names, names_end,
                                        elf_header->e_shnum);
-  }
+    }
 
     if (dwarf_section) {
       found_debug_info_section = true;
@@ -1107,7 +1114,7 @@ const char* ElfArchitecture(const typename ElfClass::Ehdr* elf_header) {
   }
 }
 
-template<typename ElfClass>
+template <typename ElfClass>
 bool SanitizeDebugFile(const typename ElfClass::Ehdr* debug_elf_header,
                        const std::string& debuglink_file,
                        const std::string& obj_filename,
@@ -1138,7 +1145,7 @@ bool SanitizeDebugFile(const typename ElfClass::Ehdr* debug_elf_header,
   return true;
 }
 
-template<typename ElfClass>
+template <typename ElfClass>
 bool InitModuleForElfClass(const typename ElfClass::Ehdr* elf_header,
                            const std::string& obj_filename,
                            const std::string& obj_os,
@@ -1169,9 +1176,9 @@ bool InitModuleForElfClass(const typename ElfClass::Ehdr* elf_header,
   // Use the provided module_id
   std::string id =
       module_id.empty()
-  // Add an extra "0" at the end.  PDB files on Windows have an 'age'
-  // number appended to the end of the file identifier; this isn't
-  // really used or necessary on other platforms, but be consistent.
+          // Add an extra "0" at the end.  PDB files on Windows have an 'age'
+          // number appended to the end of the file identifier; this isn't
+          // really used or necessary on other platforms, but be consistent.
           ? FileID::ConvertIdentifierToUUIDString(identifier) + "0"
           : module_id;
 
@@ -1184,7 +1191,7 @@ bool InitModuleForElfClass(const typename ElfClass::Ehdr* elf_header,
   return true;
 }
 
-template<typename ElfClass>
+template <typename ElfClass>
 bool ReadSymbolDataElfClass(const typename ElfClass::Ehdr* elf_header,
                             const std::string& obj_filename,
                             const std::string& obj_os,
